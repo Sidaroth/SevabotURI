@@ -7,7 +7,10 @@
 #
 # Purpose: Module for Sevabot that recognizes and retrieves information about Spotify URI's
 #
-# Last edit: 15-Dec-13 
+# Dependency: This module uses the non-standard module 'requests'. It can be acquired by doing
+#             'pip install requests'
+#
+# Last edit: 16-Dec-13 
 #
 # License: Free to use for any purpose.  (Public Domain)
 #
@@ -20,16 +23,20 @@ from sevabot.bot.stateful import StatefulSkypeHandler
 from sevabot.utils import ensure_unicode
  
 import re
-import simplejson
 import requests
-import json
 import string
 import math
 
 logger = logging.getLogger('SpotifyURIHandler')
-logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.INFO)
 logger.debug('SpotifyURIHandler module level load import')
- 
+
+HELP_TEXT = """
+    This module does not take any commands.
+
+    The module automatically parses the chat for any
+    spotify URI's and retrieves the information.
+"""
  
 class SpotifyURIHandler(StatefulSkypeHandler):
     """
@@ -52,6 +59,20 @@ class SpotifyURIHandler(StatefulSkypeHandler):
         logger.debug("SpotifyURIHandler init")
         self.sevabot = sevabot
         self.skype = sevabot.getSkype()
+
+        self.commands = {
+            "!spotify": self.help
+        }
+
+
+    def help(self, msg, status, desc, chat_id):
+        """
+        Print help text to chat.
+        """
+
+        # Make sure we don't trigger ourselves with the help text 
+        if not desc:
+            self.send_msg(msg, status, HELP_TEXT)
     
     def convertToMinuteTime(self, seconds):
         """
@@ -78,44 +99,56 @@ class SpotifyURIHandler(StatefulSkypeHandler):
         if len(words) == 0:
             return False
 
-        # Compile regex object
-        prog = re.compile("(?P<URI>spotify:(?P<type>(album|track|artist)):([a-zA-Z0-9]{22}))")
-        match = prog.search(body)
+        # Compile regex objects
+        uriRegex = re.compile("(?P<URI>spotify:(?P<type>(album|track|artist)):([a-zA-Z0-9]{22}))")
+        urlRegex = re.compile("http(s)?://open.spotify.com/(?P<type>(album|track|artist))/(?P<URI>([a-zA-Z0-9]{22}))")
 
-        if match:
-            uri = match.group("URI")
+        uriMatch = uriRegex.search(body)        # Check for URI match (spotify:track:URI)
+        urlMatch = urlRegex.search(body)        # Check for URL match (open.spotify.com/track/URI)
+        matchType = ""
 
-            if len(uri):
-                # Retrieve the response, and get the JSON from spotify's lookup API. 
-                response = requests.get('http://ws.spotify.com/lookup/1/.json?uri=' + uri)
-                data = response.json()
+        if uriMatch:
+            matchType = uriMatch.group("type")
+            uri = uriMatch.group("URI")
 
-                # Parse track type JSON (URI was a track i.e spotify:track:)
-                if match.group("type") == "track":
-                    album     = data["track"]["album"]["name"]
-                    albumYear = data["track"]["album"]["released"]
-                    track     = data["track"]["name"]
-                    length    = data["track"]["length"]
-                    artist    = data["track"]["artists"][0]["name"]
-                    minutes, seconds = self.convertToMinuteTime(length)
+        elif urlMatch:
+            matchType = urlMatch.group("type")
+            uri = "spotify:" + matchType + ":" + urlMatch.group("URI")
+            
+        else:
+            return False
 
-                    self.send_msg(msg, status, "Track: " + track + " (" + repr(minutes) + ":" + repr(seconds).zfill(2) + ") by " + artist)  
-                    self.send_msg(msg, status, "Album: " + album + " (" + albumYear + ")")
+        if len(uri):
+            # Retrieve the response, and get the JSON from spotify's lookup API. 
+            response = requests.get('http://ws.spotify.com/lookup/1/.json?uri=' + uri)
+            data = response.json()
 
-                # Parse album type JSON (URI was an album i.e spotify:album:)
-                elif match.group("type") == "album":
-                    album  = data["album"]["name"]
-                    artist = data["album"]["artist"]
-                    year   = data["album"]["released"]
+            # Parse track type JSON (URI/URL was a track i.e spotify:track:)
+            if matchType == "track":
+                album     = data["track"]["album"]["name"]
+                albumYear = data["track"]["album"]["released"]
+                track     = data["track"]["name"]
+                length    = data["track"]["length"]
+                artist    = data["track"]["artists"][0]["name"]
+                minutes, seconds = self.convertToMinuteTime(length)
 
-                    self.send_msg(msg, status, "Album: " + album + " (" + year + ") by " + artist)
+                self.send_msg(msg, status, "Track: " + track + " (" + repr(minutes) + ":" + repr(seconds).zfill(2) + ") by " + artist)  
+                self.send_msg(msg, status, "Album: " + album + " (" + albumYear + ")")
 
-                # Parse artist type JSON (URI was an aritst i.e spotify:artist:)
-                elif match.group("type") == "artist":
-                    artist = data["artist"]["name"]
-                    self.send_msg(msg, status, "Artist: " + artist)
+            # Parse album type JSON (URI/URL was an album i.e spotify:album:)
+            elif matchType == "album":
+                album  = data["album"]["name"]
+                artist = data["album"]["artist"]
+                year   = data["album"]["released"]
 
-                return True
+                self.send_msg(msg, status, "Album: " + album + " (" + year + ") by " + artist)
+
+            # Parse artist type JSON (URI/URL was an aritst i.e spotify:artist:)
+            elif matchType == "artist":
+                artist = data["artist"]["name"]
+                self.send_msg(msg, status, "Artist: " + artist)
+
+            return True
  
         return False
 
