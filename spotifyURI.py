@@ -13,8 +13,6 @@
 #
 #####################
 
-from __future__ import unicode_literals
- 
 import Skype4Py
 import logging
  
@@ -29,18 +27,18 @@ import string
 import math
 
 logger = logging.getLogger('SpotifyURIHandler')
-logger.setLevel(logging.INFO)
+logger.setLevel(logging.DEBUG)
 logger.debug('SpotifyURIHandler module level load import')
  
  
 class SpotifyURIHandler(StatefulSkypeHandler):
     """
-    Skype message handler class for SpotifyURI's
+    Skype message handler class for spotify URIs
     """
  
     def __init__(self):
         """
-        Use init method to init a handler
+        ...
         """
  
         logger.debug("SpotifyURIHandler constructed")
@@ -54,13 +52,22 @@ class SpotifyURIHandler(StatefulSkypeHandler):
         logger.debug("SpotifyURIHandler init")
         self.sevabot = sevabot
         self.skype = sevabot.getSkype()
+    
+    def convertToMinuteTime(self, seconds):
+        """
+        Converts the given seconds into minutes and seconds (min:sec)
+        """
+        secs = seconds
+        mins =  int(secs / 60)
+        secs -= 60 * mins
+        return mins, int(secs)
 
     def handle_message(self, msg, status):
         """
-        Handles the message (override).
-        Performs all checks, and does all the work. 
+        Handles all the work on the messages and URI checking. 
         """
-        # if the chat message is from the itself (this is dependent on bot name currently), ignore it. 
+
+        # if the chat message is from the bot, ignore it. 
         if msg.FromHandle == "bubbebot":
             return False
 
@@ -71,7 +78,7 @@ class SpotifyURIHandler(StatefulSkypeHandler):
         if len(words) == 0:
             return False
 
-        # compile regex object
+        # Compile regex object
         prog = re.compile("(?P<URI>spotify:(?P<type>(album|track|artist)):([a-zA-Z0-9]{22}))")
         match = prog.search(body)
 
@@ -79,24 +86,23 @@ class SpotifyURIHandler(StatefulSkypeHandler):
             uri = match.group("URI")
 
             if len(uri):
+                # Retrieve the response, and get the JSON from spotify's lookup API. 
                 response = requests.get('http://ws.spotify.com/lookup/1/.json?uri=' + uri)
                 data = response.json()
 
-                # Parse track type JSON
+                # Parse track type JSON (URI was a track i.e spotify:track:)
                 if match.group("type") == "track":
                     album     = data["track"]["album"]["name"]
                     albumYear = data["track"]["album"]["released"]
                     track     = data["track"]["name"]
                     length    = data["track"]["length"]
                     artist    = data["track"]["artists"][0]["name"]
-
-                    # Convert time from float value to minutes and seconds. 
                     minutes, seconds = self.convertToMinuteTime(length)
 
                     self.send_msg(msg, status, "Track: " + track + " (" + repr(minutes) + ":" + repr(seconds).zfill(2) + ") by " + artist)  
                     self.send_msg(msg, status, "Album: " + album + " (" + albumYear + ")")
 
-                # Parse album type JSON
+                # Parse album type JSON (URI was an album i.e spotify:album:)
                 elif match.group("type") == "album":
                     album  = data["album"]["name"]
                     artist = data["album"]["artist"]
@@ -104,37 +110,28 @@ class SpotifyURIHandler(StatefulSkypeHandler):
 
                     self.send_msg(msg, status, "Album: " + album + " (" + year + ") by " + artist)
 
-                # Parse artist type JSON
-                elif:
+                # Parse artist type JSON (URI was an aritst i.e spotify:artist:)
+                elif match.group("type") == "artist":
                     artist = data["artist"]["name"]
                     self.send_msg(msg, status, "Artist: " + artist)
 
                 return True
  
         return False
-    
-    def send_msg(self, msg, status, args):
-        """
-        Print stuff
-        """
-        msg.Chat.SendMessage(args)
 
-    def convertToMinuteTime(self, seconds):
-        """
-        Convert the given seconds to minutes and seconds. 
-        """
-
-        secs = seconds
-        mins =  int(secs / 60)
-        secs -= 60 * mins
-        return mins, int(secs)
- 
     def shutdown():
         """
         Called when module is reloaded.
         """
+ 
         logger.debug("SpotifyURIHandler shutdown")
  
+    def send_msg(self, msg, status, args):
+        """
+        Print stuff
+        """
+ 
+        msg.Chat.SendMessage(args)
 
  
 # export the instance to sevabot
